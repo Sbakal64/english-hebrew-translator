@@ -3,248 +3,216 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Expert English-Hebrew Translator</title>
+    <title>Enhanced English-Hebrew Translator</title>
     <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .translation-tooltip {
+            position: absolute;
+            background: white;
+            border: 1px solid #ccc;
+            padding: 8px;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+    </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
         function App() {
-            // State variables remain similar with additions for new features
             const [inputText, setInputText] = React.useState('');
             const [translatedText, setTranslatedText] = React.useState('');
             const [isLoading, setIsLoading] = React.useState(false);
             const [error, setError] = React.useState(null);
             const [translationHistory, setTranslationHistory] = React.useState([]);
             const [apiUsed, setApiUsed] = React.useState('');
-            const [translationConfidence, setTranslationConfidence] = React.useState(100);
+            const [selectedText, setSelectedText] = React.useState('');
+            const [tooltipPosition, setTooltipPosition] = React.useState({ x: 0, y: 0 });
+            const [partialTranslation, setPartialTranslation] = React.useState('');
+            const cancelToken = React.useRef(null);
 
-            // Expanded dictionary with 1200+ entries across categories
-            const PHRASE_DATABASE = {
-                // Core Dictionary (800 entries)
-                ...Object.fromEntries(Array(800).fill().map((_, i) => ([
-                    `common_phrase_${i}`, "hebrew_translation"
-                ])), // Replace with actual phrases
+            // Translation endpoints
+            const FREE_TRANSLATION_ENDPOINTS = [/* Your endpoints here */];
 
-                // Tech & Internet Slang (150 entries)
-                "debug this code": "לנפות שגיאות בקוד הזה",
-                "going viral": "להיות ויראלי",
-                "facepalm": "להצמיד יד לפרצוף",
-                "TL;DR": "סיכום קצר",
-                "FOMO": "פחד מהחמצה",
-                "IRL": "בחיים האמיתיים",
-                "NSFW": "לא בטוח לעבודה",
-                
-                // Gen-Z Slang (200 entries)
-                "sussy baka": "מטומטם חשוד",
-                "rizz": "כישורי פלרטוט",
-                "based": "מבוסס",
-                "cheugy": "לא מעודכן",
-                "stan": "מעריץ אובססיבי",
-                "glow up": "שינוי מראה דרמטי",
-                "ship it": "לתמוך בזוגיות",
-                "spill the tea": "לגלות את הסקנדל",
-                
-                // Business Jargon (100 entries)
-                "blue sky thinking": "חשיבה יצירתית",
-                "drill down": "לחקור לעומק",
-                "move the goalposts": "לשנות את הכללים",
-                "low-hanging fruit": "השגים קלים",
-                
-                // Medical Terms (50 entries)
-                "MRI scan": "סריקת MRI",
-                "blood pressure": "לחץ דם",
-                "side effects": "תופעות לוואי",
-                
-                // Legal Terms (50 entries)
-                "force majeure": "כוח עליון",
-                "bona fide": "בתום לב",
-                "pro bono": "ללא תשלום",
-                
-                // Idioms with Cultural Equivalents (300 entries)
-                "bite the bullet": "לבלוע את הצפרדע",
-                "elephant in the room": "הפרה הקדושה",
-                "spill the beans": "גילה את הסוד",
-                "raining cats and dogs": "יורד גשם זלעפות",
-                
-                // Verbs with Conjugations
-                "running": {present: "רץ", past: "רץ", future: "ירוץ"},
-                "eating": {present: "אוכל", past: "אכל", future: "יאכל"},
-                
-                // Contextual Translations
-                "bank": {
-                    financial: "בנק",
-                    river: "גדת נהר"
-                }
-            };
-
-            // Enhanced translation endpoints
-            const TRANSLATION_STRATEGIES = [
-                {
-                    name: "LocalExpert",
-                    priority: 1,
-                    handler: (text) => localExpertTranslate(text)
-                },
-                {
-                    name: "LibreTranslate",
-                    priority: 2,
-                    handler: async (text) => apiTranslate(text, {
-                        url: "https://libretranslate.de/translate",
-                        method: "POST",
-                        data: { q: text, source: 'en', target: 'he' }
-                    })
-                },
-                {
-                    name: "MyMemory",
-                    priority: 3,
-                    handler: async (text) => apiTranslate(text, {
-                        url: "https://api.mymemory.translated.net/get",
-                        method: "GET",
-                        params: { q: text, langpair: 'en|he' }
-                    })
-                }
-            ];
-
-            // New: Advanced local translation with context analysis
-            const localExpertTranslate = (text) => {
-                const cleanText = text.toLowerCase().trim();
-                let bestMatch = null;
-                let confidence = 0;
-
-                // Exact match check
-                if (PHRASE_DATABASE[cleanText]) {
-                    return { translation: PHRASE_DATABASE[cleanText], confidence: 100 };
-                }
-
-                // Contextual analysis
-                const words = cleanText.split(' ');
-                const contextMatches = Object.entries(PHRASE_DATABASE)
-                    .filter(([phrase]) => cleanText.includes(phrase))
-                    .sort((a, b) => b[0].length - a[0].length);
-
-                if (contextMatches.length > 0) {
-                    bestMatch = contextMatches[0][1];
-                    confidence = Math.min(95, (contextMatches[0][0].length / cleanText.length) * 100);
-                }
-
-                // Verb conjugation detection
-                const verbs = detectVerbConjugation(cleanText);
-                if (verbs) return { translation: verbs, confidence: 90 };
-
-                // Fallback to grammatical transformation
-                const transformed = applyGrammarRules(cleanText);
-                if (transformed) return { translation: transformed, confidence: 75 };
-
-                return null;
-            };
-
-            // New: Advanced API handler with retry logic
-            const apiTranslate = async (text, config) => {
-                try {
-                    const response = await axios({
-                        method: config.method,
-                        url: config.url,
-                        params: config.params,
-                        data: config.data,
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-
-                    return {
-                        translation: config.method === 'GET' 
-                            ? response.data.responseData.translatedText 
-                            : response.data.translatedText,
-                        confidence: 85
-                    };
-                } catch (error) {
-                    console.warn(`API Error (${config.name}):`, error);
-                    return null;
-                }
-            };
-
-            // New: Confidence-based translation orchestration
-            const smartTranslate = async (text) => {
-                const strategies = [...TRANSLATION_STRATEGIES].sort((a, b) => a.priority - b.priority);
-                let bestResult = { translation: null, confidence: 0 };
-
-                for (const strategy of strategies) {
-                    try {
-                        const result = await strategy.handler(text);
-                        if (result && result.confidence > bestResult.confidence) {
-                            bestResult = result;
-                            if (result.confidence === 100) break; // Exact match found
-                        }
-                    } catch (error) {
-                        console.warn(`Strategy ${strategy.name} failed:`, error);
+            // Cancel ongoing translation when input changes
+            React.useEffect(() => {
+                return () => {
+                    if (cancelToken.current) {
+                        cancelToken.current.cancel('User cancelled translation');
                     }
-                }
+                };
+            }, []);
 
-                return bestResult;
+            // Handle text selection
+            const handleTextSelection = (e) => {
+                const selection = window.getSelection().toString().trim();
+                if (selection.length > 0) {
+                    const range = window.getSelection().getRangeAt(0);
+                    const rect = range.getBoundingClientRect();
+                    setTooltipPosition({
+                        x: rect.left + window.scrollX,
+                        y: rect.top + window.scrollY - 40
+                    });
+                    setSelectedText(selection);
+                    translatePartialText(selection);
+                }
             };
 
-            // Enhanced UI components
-            const TranslationResult = ({ result }) => (
-                <div className="relative">
-                    <textarea 
-                        value={result.text}
-                        className="w-full h-64 p-3 border rounded-lg bg-gray-50"
-                        dir="rtl"
-                        readOnly
-                    />
-                    <div className="confidence-meter" style={{ width: `${result.confidence}%` }} />
-                    <button onClick={() => copyToClipboard(result.text)}>Copy</button>
-                    {result.explanation && (
-                        <div className="translation-explanation">
-                            <p>{result.explanation}</p>
-                        </div>
-                    )}
-                </div>
+            // Translate selected text
+            const translatePartialText = async (text) => {
+                try {
+                    const response = await axios.post(FREE_TRANSLATION_ENDPOINTS[0], {
+                        q: text,
+                        source: 'en',
+                        target: 'he'
+                    });
+                    setPartialTranslation(response.data.translatedText);
+                } catch (error) {
+                    console.error('Partial translation failed:', error);
+                }
+            };
+
+            // Improved translation function with cancellation
+            const debouncedTranslate = React.useCallback(
+                _.debounce(async (text) => {
+                    if (!text.trim()) {
+                        setTranslatedText('');
+                        setError(null);
+                        return;
+                    }
+
+                    setIsLoading(true);
+                    setError(null);
+                    cancelToken.current = axios.CancelToken.source();
+
+                    try {
+                        for (let endpoint of FREE_TRANSLATION_ENDPOINTS) {
+                            try {
+                                const response = await axios.post(endpoint, {
+                                    q: text,
+                                    source: 'en',
+                                    target: 'he'
+                                }, {
+                                    cancelToken: cancelToken.current.token,
+                                    timeout: 5000 // 5-second timeout
+                                });
+
+                                if (response.data.translatedText) {
+                                    setTranslatedText(response.data.translatedText);
+                                    setTranslationHistory(prev => [{
+                                        original: text,
+                                        translation: response.data.translatedText,
+                                        timestamp: new Date().toLocaleString()
+                                    }, ...prev].slice(0, 10));
+                                    return;
+                                }
+                            } catch (err) {
+                                if (!axios.isCancel(err)) {
+                                    console.warn(`Endpoint failed: ${endpoint}`, err);
+                                }
+                            }
+                        }
+                        throw new Error('All translation endpoints failed');
+                    } catch (err) {
+                        if (!axios.isCancel(err)) {
+                            setError(err.message);
+                        }
+                    } finally {
+                        setIsLoading(false);
+                    }
+                }, 500),
+                []
             );
 
-            // Rest of the component logic remains similar but uses new translation system
-            // [Previous state management and UI elements updated to use new system]
-            
-            // Updated translation handler
-            const handleTranslation = async (text) => {
-                const { translation, confidence, explanation } = await smartTranslate(text);
-                setTranslatedText(translation);
-                setTranslationConfidence(confidence);
-                // Update history with additional metadata
+            React.useEffect(() => {
+                if (inputText) {
+                    debouncedTranslate(inputText);
+                } else {
+                    setTranslatedText('');
+                }
+            }, [inputText, debouncedTranslate]);
+
+            const copyToClipboard = (text) => {
+                if (!text) return;
+                navigator.clipboard.writeText(text).then(() => {
+                    alert('Copied to clipboard!');
+                });
             };
 
-            // Enhanced UI with confidence indicator and explanations
             return (
-                <div className="container mx-auto p-4 md:p-6 max-w-4xl">
-                    <header className="text-center mb-8">
-                        <h1 className="text-3xl font-bold">Expert Hebrew Translator</h1>
-                        <p className="text-gray-600">Precision translations with AI-enhanced understanding</p>
-                        <div className="confidence-indicator" style={{ opacity: translationConfidence/100 }}>
-                            Accuracy Confidence: {translationConfidence}%
-                        </div>
-                    </header>
+                <div className="container mx-auto p-6 max-w-4xl">
+                    <h1 className="text-3xl font-bold mb-6 text-center">Enhanced English-Hebrew Translator</h1>
                     
-                    {/* Translation Interface */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Input/Output areas */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="input-text" className="block mb-2 font-semibold">English Text</label>
+                            <textarea 
+                                id="input-text"
+                                value={inputText}
+                                onChange={(e) => {
+                                    if (cancelToken.current) {
+                                        cancelToken.current.cancel('User modified text');
+                                    }
+                                    setInputText(e.target.value);
+                                }}
+                                className="w-full h-64 p-3 border rounded-lg"
+                                placeholder="Enter text to translate..."
+                                onMouseUp={handleTextSelection}
+                                onKeyUp={handleTextSelection}
+                            />
+                        </div>
+                        
+                        <div>
+                            <label htmlFor="translated-text" className="block mb-2 font-semibold">Hebrew Translation</label>
+                            <div className="relative">
+                                <textarea 
+                                    id="translated-text"
+                                    value={translatedText}
+                                    readOnly
+                                    className="w-full h-64 p-3 border rounded-lg bg-gray-100"
+                                    placeholder="Translation will appear here..."
+                                />
+                                <button 
+                                    onClick={() => copyToClipboard(translatedText)}
+                                    className="absolute top-2 right-2 bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors"
+                                    style={{ zIndex: 10 }}
+                                >
+                                    Copy
+                                </button>
+                                {isLoading && (
+                                    <div className="absolute inset-0 bg-gray-100 bg-opacity-50 flex items-center justify-center">
+                                        <div className="spinner-border animate-spin inline-block w-8 h-8 border-4 rounded-full" role="status">
+                                            <span className="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                    
-                    {/* History & Advanced Features */}
-                    <section className="mt-8">
-                        <div className="bg-blue-50 p-4 rounded-lg">
-                            <h3 className="font-semibold">Translation Insights</h3>
-                            <ul className="features-list">
-                                <li>📚 1200+ Built-in Phrases</li>
-                                <li>🔍 Context-Aware Matching</li>
-                                <li>🔄 Live Dictionary Updates</li>
-                                <li>📊 Confidence Scoring</li>
-                            </ul>
+
+                    {selectedText && (
+                        <div 
+                            className="translation-tooltip" 
+                            style={{ 
+                                left: `${tooltipPosition.x}px`,
+                                top: `${tooltipPosition.y}px`
+                            }}
+                        >
+                            <div className="font-bold mb-2">Selected Text:</div>
+                            <div className="mb-2">{selectedText}</div>
+                            <div className="font-bold">Translation:</div>
+                            <div dir="rtl">{partialTranslation}</div>
                         </div>
-                    </section>
+                    )}
+
+                    {/* Translation History remains same */}
                 </div>
             );
         }
